@@ -18,8 +18,9 @@ from app.core.constants import (
 from app.models import Restroom
 from app.schemas.inspection import InspectionCreate, InspectionItem
 from app.schemas.issue import IssueCreate, IssueStatusUpdate
+from app.schemas.patrol import PatrolPlanCreate, PatrolPlanPoint, PatrolRecordCreate, PatrolTrackPoint
 from app.schemas.restroom import RestroomCreate
-from app.services import inspection_service, issue_service, restroom_service
+from app.services import inspection_service, issue_service, patrol_service, restroom_service
 
 RANDOM_SEED = 20240913
 
@@ -78,6 +79,14 @@ CATEGORY_BY_ITEM = {
     "工具与标识摆放": IssueCategory.OTHER,
     "墙面门窗卫生": IssueCategory.CLEANING,
 }
+
+# 明显偏离时的补充说明示例
+DEVIATION_NOTES = [
+    "沿线点位施工围挡，临时跳过封闭点位，已拍照留证",
+    "突降暴雨，末段点位改为车巡抽查，未逐一停留",
+    "接市民投诉优先处置，压缩了后续点位的巡查时间",
+    "巡查车辆故障，末段两个点位步行未及到达，次日补巡",
+]
 
 
 def _build_items(rng: random.Random, quality: float) -> list[InspectionItem]:
@@ -190,7 +199,104 @@ def seed_database(db: Session, *, reset: bool = False) -> int:
         created += 1
         _advance_issue(db, issue.id, age_days, rng)
 
+    _seed_patrols(db, restrooms, rng, now)
+
     return created
+
+
+def _seed_patrols(db: Session, restrooms: list, rng: random.Random, now: datetime) -> None:
+    """生成计划路线与近 7 天的巡查执行记录，覆盖无偏离/轻微偏离/明显偏离三种情形。"""
+    plan_specs = [
+        ("城东区早班巡查路线", "城东区", "张伟", Shift.MORNING, [0, 1, 2], 8),
+        ("城西区中班巡查路线", "城西区", "刘洋", Shift.MIDDLE, [3, 4, 5], 14),
+        ("滨江新区晚班巡查路线", "滨江新区", "胡明月", Shift.NIGHT, [6, 7], 19),
+    ]
+    plans = []
+    for name, district, inspector, shift, indexes, start_hour in plan_specs:
+        plan = patrol_service.create_plan(
+            db,
+            PatrolPlanCreate(
+                name=name,
+                district=district,
+                inspector=inspector,
+                shift=shift,
+                points=[
+                    PatrolPlanPoint(restroom_id=restrooms[i].id, stay_minutes=15 + 5 * (i % 3))
+                    for i in indexes
+                ],
+                remark="按顺序逐点巡查并记录到离时间",
+            ),
+        )
+        plans.append((plan, indexes, start_hour))
+
+    for offset in range(6, -1, -1):
+        day = now - timedelta(days=offset)
+        for plan, indexes, start_hour in plans:
+            if rng.random() < 0.2:
+                continue
+            start = day.replace(hour=start_hour, minute=rng.choice([0, 10, 20]), second=0)
+            points = list(plan.points)
+            roll = rng.random()
+            drop: set[int] = set()
+            swap = False
+            extra: dict | None = None
+            note = None
+            if roll < 0.24 and len(points) >= 2:
+                # 明显偏离：漏巡两个点位（两点位路线则漏巡一个，到位率亦低于阈值）
+                drop = {p["restroom_id"] for p in rng.sample(points, 2 if len(points) > 2 else 1)}
+                note = rng.choice(DEVIATION_NOTES)
+            elif roll < 0.42:
+                # 轻微偏离：顺序颠倒或临时增加计划外点位
+                if rng.random() < 0.5 and len(points) >= 2:
+                    swap = True
+                else:
+                    outsider = next(r for r in restrooms if r.id not in {p["restroom_id"] for p in points})
+                    extra = {"restroom_id": outsider.id, "stay_minutes": 10}
+
+            tracks, end = _build_tracks(points, start, rng, drop=drop, swap=swap, extra=extra)
+            patrol_service.create_record(
+                db,
+                PatrolRecordCreate(
+                    plan_id=plan.id,
+                    inspector=plan.inspector if rng.random() < 0.8 else rng.choice(INSPECTORS),
+                    start_time=start,
+                    end_time=end,
+                    tracks=tracks,
+                    deviation_note=note,
+                    remark=None,
+                ),
+            )
+
+
+def _build_tracks(
+    points: list[dict],
+    start: datetime,
+    rng: random.Random,
+    *,
+    drop: set[int] | None = None,
+    swap: bool = False,
+    extra: dict | None = None,
+) -> tuple[list[PatrolTrackPoint], datetime]:
+    """按计划点位顺序生成轨迹：逐点到访，停留后前往下一点位。"""
+    sequence = [p for p in points if not drop or p["restroom_id"] not in drop]
+    if swap and len(sequence) >= 2:
+        sequence[0], sequence[1] = sequence[1], sequence[0]
+    if extra:
+        sequence = sequence + [extra]
+
+    cursor = start
+    tracks: list[PatrolTrackPoint] = []
+    for point in sequence:
+        arrive = cursor + timedelta(minutes=rng.randint(4, 10))
+        leave = arrive + timedelta(minutes=max(3, int(point["stay_minutes"]) + rng.randint(-4, 6)))
+        tracks.append(
+            PatrolTrackPoint(
+                restroom_id=point["restroom_id"], arrive_time=arrive, leave_time=leave
+            )
+        )
+        cursor = leave
+    end = cursor + timedelta(minutes=rng.randint(3, 8))
+    return tracks, end
 
 
 def _advance_issue(db: Session, issue_id: int, age_days: int, rng: random.Random) -> None:

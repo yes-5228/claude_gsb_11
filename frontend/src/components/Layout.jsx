@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/', label: '总览看板', icon: '📊', end: true },
   { to: '/restrooms', label: '公厕台账', icon: '🏛️' },
   { to: '/inspections', label: '保洁巡查', icon: '🧹' },
+  { to: '/patrols', label: '巡查路线', icon: '🗺️' },
   { to: '/issues', label: '问题整改', icon: '🛠️' },
 ];
 

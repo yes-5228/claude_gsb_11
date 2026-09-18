@@ -26,6 +26,21 @@ class InspectionResult(StrEnum):
     ABNORMAL = "发现问题"
 
 
+class PatrolDeviationLevel(StrEnum):
+    """巡查记录与计划路线的偏离程度。"""
+
+    NONE = "无偏离"
+    MINOR = "轻微偏离"
+    SIGNIFICANT = "明显偏离"
+
+
+# 到位率低于该值（百分比）即判定为明显偏离
+PATROL_ARRIVAL_RATE_SIGNIFICANT_THRESHOLD = 70.0
+
+# 漏巡点位数达到该值即判定为明显偏离
+PATROL_MISSED_SIGNIFICANT_THRESHOLD = 2
+
+
 class IssueCategory(StrEnum):
     CLEANING = "保洁不到位"
     FACILITY = "设施损坏"
