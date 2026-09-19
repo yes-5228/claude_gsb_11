@@ -97,3 +97,19 @@ OPEN_ISSUE_STATUSES: list[str] = [
 
 # 单检查项低于该分数视为不合格项
 INSPECTION_ITEM_PROBLEM_THRESHOLD = 6
+
+
+class RouteDeviationType(StrEnum):
+    """巡查路线偏离类型。"""
+
+    MISSED = "漏巡"
+    SHORT_STAY = "停留不足"
+    EXTRA_POINT = "计划外点位"
+    OUT_OF_ORDER = "顺序偏离"
+
+
+# 到位率低于该阈值（百分比）即判定为偏离明显
+ROUTE_ARRIVAL_RATE_THRESHOLD = 80.0
+
+# 实际停留与计划停留的容差分钟数，差距在容差内不记为停留不足
+ROUTE_STAY_TOLERANCE_MINUTES = 1

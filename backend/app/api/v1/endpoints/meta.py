@@ -10,11 +10,13 @@ from app.core.constants import (
     INSPECTION_CHECK_ITEMS,
     INSPECTION_ITEM_MAX_SCORE,
     ISSUE_TRANSITIONS,
+    ROUTE_ARRIVAL_RATE_THRESHOLD,
     IssueCategory,
     IssueSeverity,
     IssueStatus,
     RestroomGrade,
     RestroomStatus,
+    RouteDeviationType,
     Shift,
 )
 from app.core.database import get_db
@@ -40,6 +42,8 @@ class Dictionaries(BaseModel):
     inspection_check_items: list[str]
     inspection_item_max_score: int
     issue_transitions: dict[str, list[str]]
+    route_deviation_types: list[str]
+    route_arrival_rate_threshold: float
 
 
 @router.get("/dictionaries", response_model=Dictionaries, summary="枚举字典")
@@ -54,6 +58,8 @@ def get_dictionaries() -> Dictionaries:
         inspection_check_items=list(INSPECTION_CHECK_ITEMS),
         inspection_item_max_score=INSPECTION_ITEM_MAX_SCORE,
         issue_transitions={key: list(value) for key, value in ISSUE_TRANSITIONS.items()},
+        route_deviation_types=[item.value for item in RouteDeviationType],
+        route_arrival_rate_threshold=ROUTE_ARRIVAL_RATE_THRESHOLD,
     )
 
 

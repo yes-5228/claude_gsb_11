@@ -18,8 +18,9 @@ from app.core.constants import (
 from app.models import Restroom
 from app.schemas.inspection import InspectionCreate, InspectionItem
 from app.schemas.issue import IssueCreate, IssueStatusUpdate
+from app.schemas.patrol import ActualPoint, PatrolRecordCreate, PatrolRouteCreate, RoutePoint
 from app.schemas.restroom import RestroomCreate
-from app.services import inspection_service, issue_service, restroom_service
+from app.services import inspection_service, issue_service, patrol_service, restroom_service
 
 RANDOM_SEED = 20240913
 
@@ -79,6 +80,22 @@ CATEGORY_BY_ITEM = {
     "墙面门窗卫生": IssueCategory.CLEANING,
 }
 
+# 巡查路线演示数据：(路线名, 区域, 班次, [(RESTROOM_SPECS 下标, 计划停留分钟), ...])
+ROUTE_SPECS = [
+    ("城东区早班巡查线", "城东区", Shift.MORNING, [(0, 15), (1, 10), (2, 10)]),
+    ("城西区中班巡查线", "城西区", Shift.MIDDLE, [(3, 20), (4, 15), (5, 15)]),
+    ("滨江新区早班巡查线", "滨江新区", Shift.MORNING, [(6, 15), (7, 10)]),
+    ("老城区晚班巡查线", "老城区", Shift.NIGHT, [(8, 10), (9, 10)]),
+]
+
+SHIFT_START_HOUR = {Shift.MORNING: 8, Shift.MIDDLE: 14, Shift.NIGHT: 19}
+
+MISSED_NOTES = [
+    "该点位周边道路施工围挡，绕行成本过高，已与班组长报备",
+    "巡查途中接市民求助处理突发情况，该点位未能到位，次日补巡",
+    "该点位临时停水封闭，现场确认无法进入，已拍照留存",
+]
+
 
 def _build_items(rng: random.Random, quality: float) -> list[InspectionItem]:
     items: list[InspectionItem] = []
@@ -128,7 +145,6 @@ def seed_database(db: Session, *, reset: bool = False) -> int:
 
     quality_by_restroom = {room.id: rng.uniform(7.4, 9.8) for room in restrooms}
     inspection_ids: list[tuple[int, int]] = []  # (restroom_id, inspection_id)
-
     for offset in range(13, -1, -1):
         day = now - timedelta(days=offset)
         for room in restrooms:
@@ -154,6 +170,8 @@ def seed_database(db: Session, *, reset: bool = False) -> int:
                 ),
             )
             inspection_ids.append((room.id, inspection.id))
+
+    _seed_patrols(db, rng, now, restrooms)
 
     created = 0
     for restroom_id, inspection_id in inspection_ids:
@@ -226,3 +244,100 @@ def _advance_issue(db: Session, issue_id: int, age_days: int, rng: random.Random
             )
         except Exception:  # noqa: BLE001  演示数据允许跳过不合法的流转
             break
+
+
+def _seed_patrols(
+    db: Session, rng: random.Random, now: datetime, restrooms: list[Restroom]
+) -> None:
+    """生成计划路线与近 14 天的巡查执行记录，覆盖正常与偏离样本。"""
+    routes = []
+    for name, district, shift, point_specs in ROUTE_SPECS:
+        route = patrol_service.create_route(
+            db,
+            PatrolRouteCreate(
+                name=name,
+                district=district,
+                shift=shift,
+                points=[
+                    RoutePoint(restroom_id=restrooms[idx].id, stay_minutes=stay)
+                    for idx, stay in point_specs
+                ],
+                remark="按区域划分的日常巡查路线",
+            ),
+        )
+        routes.append((route, shift, point_specs))
+
+    for offset in range(13, -1, -1):
+        day = now - timedelta(days=offset)
+        for route, shift, point_specs in routes:
+            if rng.random() < 0.25:
+                continue
+            start = day.replace(
+                hour=SHIFT_START_HOUR[shift],
+                minute=rng.choice([0, 5, 10, 15]),
+                second=0,
+                microsecond=0,
+            )
+            scenario = rng.random()
+            skip_index = rng.randrange(len(point_specs)) if scenario < 0.15 else None
+            short_index = rng.randrange(len(point_specs)) if 0.15 <= scenario < 0.28 else None
+            reversed_order = 0.28 <= scenario < 0.36 and len(point_specs) > 1
+            with_extra = 0.36 <= scenario < 0.44
+
+            visit_indexes = list(range(len(point_specs)))
+            if reversed_order:
+                visit_indexes.reverse()
+
+            actual_points: list[ActualPoint] = []
+            cursor = start
+            for idx in visit_indexes:
+                if idx == skip_index:
+                    continue
+                _, planned_stay = point_specs[idx]
+                cursor = cursor + timedelta(minutes=rng.randint(8, 18))
+                arrive = cursor
+                stay = planned_stay
+                if idx == short_index:
+                    stay = max(1, planned_stay - rng.randint(3, 6))
+                else:
+                    stay = max(1, planned_stay + rng.randint(-2, 4))
+                leave = arrive + timedelta(minutes=stay)
+                actual_points.append(
+                    ActualPoint(
+                        restroom_id=route.points[idx]["restroom_id"],
+                        arrive_at=arrive,
+                        leave_at=leave,
+                    )
+                )
+                cursor = leave
+
+            if with_extra:
+                planned_ids = {p["restroom_id"] for p in route.points}
+                candidates = [room for room in restrooms if room.id not in planned_ids]
+                if candidates:
+                    extra = rng.choice(candidates)
+                    arrive = cursor + timedelta(minutes=rng.randint(8, 15))
+                    actual_points.append(
+                        ActualPoint(
+                            restroom_id=extra.id,
+                            arrive_at=arrive,
+                            leave_at=arrive + timedelta(minutes=rng.randint(4, 10)),
+                        )
+                    )
+                    cursor = actual_points[-1].leave_at
+
+            if not actual_points:
+                continue
+            end = cursor + timedelta(minutes=rng.randint(2, 8))
+            note = rng.choice(MISSED_NOTES) if skip_index is not None else None
+            patrol_service.create_record(
+                db,
+                PatrolRecordCreate(
+                    route_id=route.id,
+                    inspector=rng.choice(INSPECTORS),
+                    start_time=start,
+                    end_time=end,
+                    actual_points=actual_points,
+                    deviation_note=note,
+                ),
+            )

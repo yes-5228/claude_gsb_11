@@ -51,6 +51,34 @@ export const SEVERITY_TONES = {
   紧急: 'tag-danger',
 };
 
+export const DEVIATION_TONES = {
+  漏巡: 'tag-danger',
+  停留不足: 'tag-warning',
+  计划外点位: 'tag-info',
+  顺序偏离: 'tag-warning',
+};
+
+export function deviationTone(type) {
+  return DEVIATION_TONES[type] || 'tag-neutral';
+}
+
+/** 到位率标签色调：100% 绿、达阈值黄、低于阈值红。 */
+export function arrivalRateTone(rate) {
+  if (rate >= 100) return 'tag-success';
+  if (rate >= 80) return 'tag-warning';
+  return 'tag-danger';
+}
+
+/** 分钟数格式化为「X小时Y分」。 */
+export function formatDuration(minutes) {
+  if (minutes == null || Number.isNaN(Number(minutes))) return '-';
+  const value = Number(minutes);
+  if (value < 60) return `${value} 分钟`;
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
+}
+
 export function statusTone(status) {
   return STATUS_TONES[status] || 'tag-neutral';
 }

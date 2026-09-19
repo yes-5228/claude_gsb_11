@@ -832,6 +832,143 @@ table.data-table td.wrap {
   margin-bottom: 4px;
 }
 
+/* 巡查路线：路线点位编辑 */
+.route-point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.route-point-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-alt);
+}
+
+.route-point-row .order {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.route-point-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-point-row .stay {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.route-point-row .stay input {
+  width: 60px;
+}
+
+/* 巡查路线：执行记录打卡表 */
+.checkin-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.checkin-head,
+.checkin-row {
+  display: grid;
+  grid-template-columns: 28px minmax(150px, 1.4fr) 76px 1fr 1fr 40px 44px;
+  gap: 8px;
+  align-items: center;
+}
+
+.checkin-head {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 10px;
+}
+
+.checkin-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--surface-alt);
+}
+
+.checkin-row.is-missed {
+  opacity: 0.55;
+  background: #f3f4f6;
+}
+
+.checkin-row.is-extra {
+  border-style: dashed;
+}
+
+.checkin-row .order {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkin-row.is-extra .order {
+  background: var(--text-muted);
+}
+
+.checkin-row .point-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checkin-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  justify-self: center;
+}
+
+/* 巡查路线：偏离明细 */
+.deviation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deviation-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-alt);
+  font-size: 13px;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     flex-direction: column;

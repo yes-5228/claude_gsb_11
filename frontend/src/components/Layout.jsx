@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/', label: '总览看板', icon: '📊', end: true },
   { to: '/restrooms', label: '公厕台账', icon: '🏛️' },
   { to: '/inspections', label: '保洁巡查', icon: '🧹' },
+  { to: '/patrols', label: '巡查路线', icon: '🗺️' },
   { to: '/issues', label: '问题整改', icon: '🛠️' },
 ];
 
@@ -16,7 +17,7 @@ export default function Layout() {
         <aside className="sidebar">
           <div className="sidebar-brand">
             <strong>公厕保洁巡查记录系统</strong>
-            <span>台账 · 巡查 · 问题 · 整改闭环</span>
+            <span>台账 · 巡查 · 路线 · 整改闭环</span>
           </div>
           <nav>
             {NAV_ITEMS.map((item) => (

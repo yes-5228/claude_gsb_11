@@ -1,6 +1,6 @@
 # 公厕保洁巡查记录系统
 
-面向城市公厕管养单位的巡查记录与整改闭环管理系统，覆盖 **公厕台账 → 保洁巡查 → 问题上报 → 整改跟踪** 四条业务主线。后端为 FastAPI + SQLAlchemy，前端为 React + Vite，前后端均按模块拆分，可单独开发、单独部署。
+面向城市公厕管养单位的巡查记录与整改闭环管理系统，覆盖 **公厕台账 → 保洁巡查 → 路线追溯 → 问题上报 → 整改跟踪** 五条业务主线。后端为 FastAPI + SQLAlchemy，前端为 React + Vite，前后端均按模块拆分，可单独开发、单独部署。
 
 ## 功能模块
 
@@ -9,6 +9,7 @@
 | 总览看板 | `/` | 核心指标卡、巡查与问题趋势、整改状态/分类/严重程度分布、区域运行情况、重点关注公厕、最新问题与巡查 |
 | 公厕台账 | `/restrooms`、`/restrooms/:id` | 台账增删改查、区域与状态筛选、公厕详情（档案 + 历史巡查 + 历史问题）、关联数据删除保护 |
 | 保洁巡查 | `/inspections` | 8 项检查项打分、自动折算百分制得分与等级、班次/日期/结论筛选、巡查详情、一键转问题上报 |
+| 巡查路线 | `/patrols` | 计划路线维护（点位顺序与停留时长）、巡查执行登记（开始/结束时间、点位打卡）、自动比对到位率与偏离明细、偏离明显强制填写说明 |
 | 问题上报 | `/issues`、`/issues/:id` | 问题上报（可关联巡查记录）、分类/程度/期限、整改流程流转、整改轨迹时间线、超期预警、追加跟进记录 |
 
 其他页面不会互相混杂：台账、巡查、问题各自独立成页，详情页再做跨模块的关联展示。
@@ -25,11 +26,11 @@
 .
 ├── backend
 │   ├── app
-│   │   ├── api/v1/endpoints      # 路由层：restrooms / inspections / issues / stats / meta
+│   │   ├── api/v1/endpoints      # 路由层：restrooms / inspections / patrols / issues / stats / meta
 │   │   ├── core                 # 配置、数据库、业务常量、领域异常
-│   │   ├── models               # ORM 模型：公厕、巡查、问题、整改流水
+│   │   ├── models               # ORM 模型：公厕、巡查、路线计划与执行记录、问题、整改流水
 │   │   ├── schemas              # Pydantic 出入参模型
-│   │   ├── services             # 业务规则层：台账、巡查、问题整改、评分、统计
+│   │   ├── services             # 业务规则层：台账、巡查、路线比对、问题整改、评分、统计
 │   │   ├── seed.py              # 演示数据生成
 │   │   └── main.py              # 应用入口（含异常处理、CORS、健康检查）
 │   ├── tests                    # pytest 接口测试
@@ -40,8 +41,8 @@
 │   │   ├── api                  # 按资源拆分的接口封装 + 统一 fetch 客户端
 │   │   ├── components           # 通用组件：表格、分页、弹窗、标签、图表、时间线等
 │   │   ├── hooks                # useAsync / useListQuery / useDictionaries
-│   │   ├── pages                # dashboard / restrooms / inspections / issues 四个模块
-│   │   ├── utils                # 时间格式化、评分换算
+│   │   ├── pages                # dashboard / restrooms / inspections / patrols / issues 五个模块
+│   │   ├── utils                # 时间格式化、评分换算、路线比对预览
 │   │   └── styles/global.css
 │   ├── nginx.conf
 │   └── Dockerfile
@@ -131,6 +132,12 @@ npm run dev
 | GET | `/inspections` | 巡查记录查询（restroom_id/district/inspector/shift/result/日期区间/关键字） |
 | POST | `/inspections` | 新增巡查，服务端按检查项自动算分、定级、判定结论 |
 | GET/PATCH/DELETE | `/inspections/{id}` | 详情 / 更新 / 删除 |
+| GET | `/patrol-routes` | 巡查路线列表（district/shift/enabled/关键字） |
+| POST | `/patrol-routes` | 新增巡查路线（点位 = 公厕 + 计划停留分钟，顺序即巡查顺序） |
+| GET/PATCH/DELETE | `/patrol-routes/{id}` | 详情 / 更新 / 删除；有执行记录时删除返回 409，`force=true` 级联 |
+| GET | `/patrol-records` | 巡查执行记录查询（route_id/district/inspector/is_deviated/日期区间/关键字） |
+| POST | `/patrol-records` | 登记巡查执行，服务端自动比对计划路线并计算到位率与偏离明细 |
+| GET/DELETE | `/patrol-records/{id}` | 详情（轨迹 + 比对结果）/ 删除 |
 | GET | `/issues` | 问题查询（status/category/severity/district/overdue/open_only/日期区间/关键字） |
 | POST | `/issues` | 上报问题，自动生成编号 `WT-YYYYMMDD-001` 并写入首条整改流水 |
 | GET/PATCH/DELETE | `/issues/{id}` | 详情（含完整整改轨迹）/ 更新 / 删除 |
@@ -146,6 +153,8 @@ npm run dev
 ## 业务规则
 
 - **巡查评分**：8 个检查项各 0-10 分，得分 = 总得分 / 满分 × 100；≥90 优秀、≥80 良好、≥70 合格，其余不合格。任一检查项低于 6 分或等级为不合格时，巡查结论自动置为「发现问题」。
+- **路线比对**：巡查执行记录提交后，服务端将实际轨迹（各点位到达/离开时间）与计划路线比对：到位率 = 已到点位数 / 计划点位数 × 100%；偏离明细分四类——`漏巡`（计划点位未到访）、`停留不足`（实际停留比计划少 1 分钟容差以上）、`计划外点位`、`顺序偏离`。
+- **偏离明显**：到位率低于 80% 或存在漏巡点位时，执行记录标记为「偏离明显」，提交时必须填写偏离说明，否则接口返回 400；列表与详情页以醒目标签展示，便于追溯核查。
 - **问题编号**：`WT-` + 上报日期 + 当日三位流水号。
 - **整改闭环**：`待整改 → 整改中 → 待验收 → 已完成 → 已关闭`；`待验证` 阶段可被驳回退回 `整改中`，`待整改/整改中` 可直接作废关闭。每次流转都会写入一条整改流水（动作、原状态、新状态、操作人、说明），详情页以时间线呈现。
 - **超期预警**：整改期限早于当前时间且状态仍处于未闭环（待整改/整改中/待验收）时，列表与详情页显示「已超期」，看板统计超期数量。
@@ -153,19 +162,19 @@ npm run dev
 
 ## 演示数据
 
-`SEED_ON_STARTUP=true`（默认）且数据库为空时，会自动写入：10 座公厕（4 个区域、三类等级、含维修/停用状态）、近 14 天约 90 条巡查记录、13 条不同整改阶段的问题及其完整整改轨迹。数据由固定随机种子生成，结果可复现；如需重置，删除 `backend/data/app.db`（或 `docker compose down -v`）后重启即可。
+`SEED_ON_STARTUP=true`（默认）且数据库为空时，会自动写入：10 座公厕（4 个区域、三类等级、含维修/停用状态）、近 14 天约 90 条巡查记录、4 条计划巡查路线及约 45 条巡查执行记录（含漏巡、停留不足、计划外点位、顺序偏离等偏离样本，偏离明显的记录均带偏离说明）、13 条不同整改阶段的问题及其完整整改轨迹。数据由固定随机种子生成，结果可复现；如需重置，删除 `backend/data/app.db`（或 `docker compose down -v`）后重启即可。
 
 ## 测试与验证
 
 ```bash
-cd backend && pytest -q          # 接口测试（覆盖台账 CRUD、删除保护、评分、流程流转、统计）
+cd backend && pytest -q          # 接口测试（覆盖台账 CRUD、删除保护、评分、路线比对、流程流转、统计）
 cd frontend && npm run build     # 生产构建
 ```
 
 本项目完成时已实际运行验证：
 
-- 后端 `pytest`：6 个用例全部通过；`/health`、台账/巡查/问题/统计/字典接口均返回预期数据。
-- 前端 `npm run build`：构建成功（68 个模块）。
+- 后端 `pytest`：14 个用例全部通过；`/health`、台账/巡查/路线/问题/统计/字典接口均返回预期数据。
+- 前端 `npm run build`：构建成功（74 个模块）。
 - 浏览器端到端验证（Chromium 无头模式，覆盖 10 个场景）：看板渲染与趋势图、台账列表筛选、新增公厕表单提交、公厕详情三个页签、巡查列表、巡查评分表单联动（拉低单项分数后结论文案实时变化）、提交巡查记录、问题列表状态筛选、问题整改流转（真实写入并在时间线新增节点）、从巡查记录跳转上报问题（自动带入公厕与关联巡查记录）。全程无控制台报错。
 - Docker Compose：`docker compose up -d --build` 后 `db`、`backend`、`frontend` 三个容器均达到 healthy，通过 Nginx 访问前端并调用 `/api/v1/*` 数据正常，即容器化链路（Nginx → FastAPI → PostgreSQL）完整可用。
 
